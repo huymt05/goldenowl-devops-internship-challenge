@@ -1,0 +1,135 @@
+name: CI/CD
+
+on:
+  push:
+    branches:
+      - "feature/**"
+      - master
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: src/package-lock.json
+
+      - name: Install dependencies
+        working-directory: src
+        run: npm ci
+
+      - name: Unit test
+        working-directory: src
+        run: npm test -- --ci --runInBand --coverage
+
+      - name: SonarQube Cloud Scan
+        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/master'
+        uses: SonarSource/sonarqube-scan-action@v8.2.1
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.qualitygate.wait=true     
+  image:
+    runs-on: ubuntu-latest
+    needs: quality
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      image_uri: ${{ steps.push.outputs.image_uri }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t goldenowl-app:${{ github.sha }} .
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: goldenowl-app:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+
+      - name: Configure AWS credentials
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Log in to ECR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Push approved image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        id: push
+        run: |
+          IMAGE_URI="${{ steps.ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY }}:${GITHUB_SHA}"
+          docker tag "goldenowl-app:${GITHUB_SHA}" "$IMAGE_URI"
+          docker push "$IMAGE_URI"
+          echo "image_uri=$IMAGE_URI" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: production-deployment
+      cancel-in-progress: false
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Download current ECS task definition
+        env:
+          ECS_TASK_FAMILY: ${{ vars.ECS_TASK_FAMILY }}
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "$ECS_TASK_FAMILY" \
+            --query taskDefinition > task-definition.json
+
+      - name: Set new image
+        id: task
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ vars.ECS_CONTAINER_NAME }}
+          image: ${{ needs.image.outputs.image_uri }}
+
+      - name: Deploy through ECS Canary strategy
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.task.outputs.task-definition }}
+          cluster: ${{ vars.ECS_CLUSTER }}
+          service: ${{ vars.ECS_SERVICE }}
+          wait-for-service-stability: true
+          wait-max-delay-seconds: 15
