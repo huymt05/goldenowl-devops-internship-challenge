@@ -1,0 +1,9 @@
+.git
+.github
+**/node_modules
+src/tests
+src/.env*
+terraform
+docs
+coverage/
+README.md
