@@ -125,11 +125,12 @@ jobs:
           container-name: ${{ vars.ECS_CONTAINER_NAME }}
           image: ${{ needs.image.outputs.image_uri }}
 
-      - name: Deploy through ECS Canary strategy
+      - name: Deploy through ECS native canary
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
           task-definition: ${{ steps.task.outputs.task-definition }}
           cluster: ${{ vars.ECS_CLUSTER }}
           service: ${{ vars.ECS_SERVICE }}
           wait-for-service-stability: true
+          wait-for-minutes: 45
           wait-max-delay-seconds: 15
