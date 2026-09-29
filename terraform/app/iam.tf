@@ -17,7 +17,7 @@ resource "aws_iam_role" "github_actions" {
       Condition = {
         StringEquals = {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-          "token.actions.githubusercontent.com:sub" = "repo:huymt05/goldenowl-devops-internship-challenge:ref:refs/heads/master"
+          "token.actions.githubusercontent.com:sub" = "repo:huymt05@186701599/goldenowl-devops-internship-challenge@1395405275:ref:refs/heads/master"
         }
       }
     }]
