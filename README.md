@@ -8,11 +8,22 @@ This repository contains a Node.js API deployed to AWS ECS Fargate. GitHub Actio
 
 ### Repository structure
 
-- `src/`: Node.js application and unit tests.
-- `.github/workflows/ci.yaml`: CI/CD workflow.
-- `terraform/bootstrap/`: Terraform state bucket and ECR repository.
-- `terraform/app/`: Application infrastructure and GitHub OIDC role.
-- `docs/evidence/`: architecture diagram and deployment screenshots.
+```text
+.
+├── .github/workflows/ci.yaml   # CI/CD: tests, SonarQube, Trivy, ECR, ECS
+├── Dockerfile                  # Multi-stage, non-root container image
+├── src/                        # Node.js API and unit tests
+├── terraform/
+│   ├── bootstrap/
+│   │   └── main.tf             # S3 state bucket and ECR repository
+│   └── app/
+│       ├── main.tf             # VPC, ALB, ECS, CloudWatch, Auto Scaling
+│       ├── iam.tf              # IAM roles and GitHub OIDC trust
+│       └── outputs.tf          # ALB URL and deployment identifiers
+└── docs/evidence/              # Architecture diagram and AWS screenshots
+```
+
+Apply `terraform/bootstrap` first, publish the initial `bootstrap` image to ECR, and then apply `terraform/app`.
 
 ### Results
 
@@ -20,8 +31,8 @@ This repository contains a Node.js API deployed to AWS ECS Fargate. GitHub Actio
 | --- | --- |
 | Source code | [Public GitHub repository](https://github.com/huymt05/goldenowl-devops-internship-challenge) |
 | Deployed application | [AWS ALB endpoint](http://goldenowl-alb-1439674637.ap-southeast-1.elb.amazonaws.com/) |
-| Expected response | `{"message":"Welcome warriors to Golden Owl!"}` |
-| Final image size | **56,040,949 bytes (~56.0 MB)** reported by ECR; Docker Desktop reports **220 MB disk usage** locally |
+| API response | `{"message":"Welcome warriors to Golden Owl!"}` (confirmed by the project owner) |
+| Verified CI/CD deployment | [Master workflow run #15](https://github.com/huymt05/goldenowl-devops-internship-challenge/actions/runs/36820609610): quality, image scan, and deploy succeeded |
 | AWS region | `ap-southeast-1` (Singapore) |
 
 The application returns JSON; it has no frontend. Test the public endpoint with:
@@ -89,9 +100,9 @@ The initial ECS task definition references the ECR `bootstrap` image. Later rele
 
 ### Docker image
 
-The [Dockerfile](Dockerfile) uses a multi-stage build. Node.js 24 Alpine installs production dependencies with `npm ci --omit=dev`; a distroless Node.js 24 runtime runs the API as non-root user `65532`. [`.dockerignore`](.dockerignore) excludes files unnecessary for the build.
+The [Dockerfile](Dockerfile) uses a multi-stage build. The `node:24-alpine3.24` build stage installs only production dependencies with `npm ci --omit=dev`. The final `alpine:3.24` stage copies the Node.js binary, application code, and production dependencies, but **does not include npm**. It runs as non-root UID/GID `1000:1000`, with `dumb-init` forwarding process signals. [`.dockerignore`](.dockerignore) excludes files unnecessary for the build.
 
-The published image measures **56,040,949 bytes (~56.0 MB) in ECR**. Docker Desktop reports **220 MB disk usage** for the local image; these are different size measurements.
+The previously reported 56 MB ECR size belonged to the retired distroless image and is not a measurement of this runtime. For a current figure, inspect the SHA-tagged image in ECR after deployment.
 
 ### Run locally
 
@@ -129,11 +140,22 @@ Repo này chứa API Node.js được triển khai trên AWS ECS Fargate. GitHub
 
 ### Cấu trúc repository
 
-- `src/`: ứng dụng Node.js và unit test.
-- `.github/workflows/ci.yaml`: workflow CI/CD.
-- `terraform/bootstrap/`: S3 bucket lưu Terraform state và ECR repository.
-- `terraform/app/`: hạ tầng ứng dụng và IAM role cho GitHub OIDC.
-- `docs/evidence/`: sơ đồ kiến trúc và ảnh minh chứng triển khai.
+```text
+.
+├── .github/workflows/ci.yaml   # CI/CD: test, SonarQube, Trivy, ECR, ECS
+├── Dockerfile                  # Image nhiều giai đoạn, chạy non-root
+├── src/                        # API Node.js và unit test
+├── terraform/
+│   ├── bootstrap/
+│   │   └── main.tf             # S3 bucket lưu state và ECR repository
+│   └── app/
+│       ├── main.tf             # VPC, ALB, ECS, CloudWatch, Auto Scaling
+│       ├── iam.tf              # IAM role và quan hệ tin cậy GitHub OIDC
+│       └── outputs.tf          # URL ALB và thông tin triển khai
+└── docs/evidence/              # Sơ đồ kiến trúc và ảnh minh chứng AWS
+```
+
+Áp dụng `terraform/bootstrap` trước, đẩy image `bootstrap` đầu tiên lên ECR, rồi mới áp dụng `terraform/app`.
 
 ### Kết quả
 
@@ -141,8 +163,8 @@ Repo này chứa API Node.js được triển khai trên AWS ECS Fargate. GitHub
 | --- | --- |
 | Mã nguồn | [GitHub repository công khai](https://github.com/huymt05/goldenowl-devops-internship-challenge) |
 | Ứng dụng đã triển khai | [Truy cập qua AWS ALB](http://goldenowl-alb-1439674637.ap-southeast-1.elb.amazonaws.com/) |
-| Phản hồi mong đợi | `{"message":"Welcome warriors to Golden Owl!"}` |
-| Kích thước image cuối cùng | **56.040.949 byte (~56,0 MB)** theo ECR; Docker Desktop hiển thị **220 MB dung lượng đĩa** ở máy cục bộ |
+| Phản hồi API | `{"message":"Welcome warriors to Golden Owl!"}` (chủ dự án đã xác nhận) |
+| CI/CD và triển khai đã xác nhận | [Workflow #15 trên master](https://github.com/huymt05/goldenowl-devops-internship-challenge/actions/runs/36820609610): kiểm tra chất lượng, quét image và deploy đều thành công |
 | Khu vực AWS | `ap-southeast-1` (Singapore) |
 
 Ứng dụng trả về JSON và không có frontend. Kiểm tra endpoint công khai bằng lệnh:
@@ -210,9 +232,9 @@ ECS task definition ban đầu dùng image `bootstrap` trên ECR. Các bản ph�
 
 ### Docker image
 
-[Dockerfile](Dockerfile) dùng multi-stage build. Node.js 24 Alpine cài các production dependencies bằng `npm ci --omit=dev`; giai đoạn chạy ứng dụng dùng distroless Node.js 24 với user không có quyền root `65532`. [`.dockerignore`](.dockerignore) loại các file không cần thiết khỏi build context.
+[Dockerfile](Dockerfile) dùng multi-stage build. Giai đoạn `node:24-alpine3.24` chỉ cài production dependencies bằng `npm ci --omit=dev`. Giai đoạn chạy cuối cùng dùng `alpine:3.24`, chỉ sao chép Node.js binary, mã nguồn và production dependencies, **không mang theo npm**. Container chạy non-root với UID/GID `1000:1000`; `dumb-init` chuyển tiếp tín hiệu cho tiến trình. [`.dockerignore`](.dockerignore) loại các file không cần thiết khỏi build context.
 
-Image đã đẩy lên ECR có kích thước **56.040.949 byte (~56,0 MB)**. Docker Desktop báo **220 MB dung lượng đĩa** cho image cục bộ; đây là hai cách đo khác nhau.
+Số đo 56 MB trên ECR trước đây thuộc image distroless đã ngừng dùng, không phải kích thước runtime hiện tại. Muốn có số mới, hãy xem image gắn tag theo commit SHA trên ECR sau khi triển khai.
 
 ### Chạy cục bộ
 
