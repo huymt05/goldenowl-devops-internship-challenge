@@ -4,16 +4,16 @@ WORKDIR /app
 COPY src/package.json src/package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
-FROM gcr.io/distroless/nodejs24-debian13:nonroot
+FROM node:24-alpine AS runtime
 
 ENV NODE_ENV=production
 WORKDIR /app
 
-COPY --from=dependencies --chown=65532:65532 /app/node_modules ./node_modules
-COPY --chown=65532:65532 src/index.js ./
-COPY --chown=65532:65532 src/server ./server
-COPY --chown=65532:65532 src/routes ./routes
+COPY --from=dependencies --chown=node:node /app/node_modules ./node_modules
+COPY --chown=node:node src/index.js ./
+COPY --chown=node:node src/server ./server
+COPY --chown=node:node src/routes ./routes
 
-USER 65532:65532
+USER node
 EXPOSE 3000
-CMD ["index.js"]
+CMD ["node", "index.js"]
