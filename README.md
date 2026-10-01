@@ -32,7 +32,8 @@ Apply `terraform/bootstrap` first, publish the initial `bootstrap` image to ECR,
 | Source code | [Public GitHub repository](https://github.com/huymt05/goldenowl-devops-internship-challenge) |
 | Deployed application | [AWS ALB endpoint](http://goldenowl-alb-1439674637.ap-southeast-1.elb.amazonaws.com/) |
 | API response | `{"message":"Welcome warriors to Golden Owl!"}` (confirmed by the project owner) |
-| Verified CI/CD deployment | [Master workflow run #15](https://github.com/huymt05/goldenowl-devops-internship-challenge/actions/runs/36820609610): quality, image scan, and deploy succeeded |
+| Verified CI/CD deployment | [Master workflow run #18](https://github.com/huymt05/goldenowl-devops-internship-challenge/actions/runs/36830578185): quality, image scan, and deploy succeeded |
+| Final container image size | 53,650,757 bytes (~53.7 MB / 51.2 MiB), reported by ECR for image tag `f2d2f8cbf431114e00a06407988aa25a22620a4c` |
 | AWS region | `ap-southeast-1` (Singapore) |
 
 The application returns JSON; it has no frontend. Test the public endpoint with:
@@ -102,7 +103,7 @@ The initial ECS task definition references the ECR `bootstrap` image. Later rele
 
 The [Dockerfile](Dockerfile) uses a multi-stage build. The `node:24-alpine3.24` build stage installs only production dependencies with `npm ci --omit=dev`. The final `alpine:3.24` stage copies the Node.js binary, application code, and production dependencies, but **does not include npm**. It runs as non-root UID/GID `1000:1000`, with `dumb-init` forwarding process signals. [`.dockerignore`](.dockerignore) excludes files unnecessary for the build.
 
-The previously reported 56 MB ECR size belonged to the retired distroless image and is not a measurement of this runtime. For a current figure, inspect the SHA-tagged image in ECR after deployment.
+The size above is the ECR-reported image size for the deployed commit, not the local uncompressed size shown by `docker images`. Recheck it with `aws ecr describe-images --region ap-southeast-1 --repository-name goldenowl-app --image-ids imageTag=f2d2f8cbf431114e00a06407988aa25a22620a4c --query "imageDetails[0].imageSizeInBytes" --output text`.
 
 ### Run locally
 
@@ -164,7 +165,8 @@ Repo này chứa API Node.js được triển khai trên AWS ECS Fargate. GitHub
 | Mã nguồn | [GitHub repository công khai](https://github.com/huymt05/goldenowl-devops-internship-challenge) |
 | Ứng dụng đã triển khai | [Truy cập qua AWS ALB](http://goldenowl-alb-1439674637.ap-southeast-1.elb.amazonaws.com/) |
 | Phản hồi API | `{"message":"Welcome warriors to Golden Owl!"}` (chủ dự án đã xác nhận) |
-| CI/CD và triển khai đã xác nhận | [Workflow #15 trên master](https://github.com/huymt05/goldenowl-devops-internship-challenge/actions/runs/36820609610): kiểm tra chất lượng, quét image và deploy đều thành công |
+| CI/CD và triển khai đã xác nhận | [Workflow #18 trên master](https://github.com/huymt05/goldenowl-devops-internship-challenge/actions/runs/36830578185): kiểm tra chất lượng, quét image và deploy đều thành công |
+| Kích thước container image cuối cùng | 53.650.757 byte (~53,7 MB / 51,2 MiB), do ECR báo cho image tag `f2d2f8cbf431114e00a06407988aa25a22620a4c` |
 | Khu vực AWS | `ap-southeast-1` (Singapore) |
 
 Ứng dụng trả về JSON và không có frontend. Kiểm tra endpoint công khai bằng lệnh:
@@ -234,7 +236,7 @@ ECS task definition ban đầu dùng image `bootstrap` trên ECR. Các bản ph�
 
 [Dockerfile](Dockerfile) dùng multi-stage build. Giai đoạn `node:24-alpine3.24` chỉ cài production dependencies bằng `npm ci --omit=dev`. Giai đoạn chạy cuối cùng dùng `alpine:3.24`, chỉ sao chép Node.js binary, mã nguồn và production dependencies, **không mang theo npm**. Container chạy non-root với UID/GID `1000:1000`; `dumb-init` chuyển tiếp tín hiệu cho tiến trình. [`.dockerignore`](.dockerignore) loại các file không cần thiết khỏi build context.
 
-Số đo 56 MB trên ECR trước đây thuộc image distroless đã ngừng dùng, không phải kích thước runtime hiện tại. Muốn có số mới, hãy xem image gắn tag theo commit SHA trên ECR sau khi triển khai.
+Kích thước ở trên là số ECR báo cho image của commit đã triển khai, không phải kích thước image chưa nén trên máy do `docker images` hiển thị. Có thể kiểm tra lại bằng lệnh `aws ecr describe-images --region ap-southeast-1 --repository-name goldenowl-app --image-ids imageTag=f2d2f8cbf431114e00a06407988aa25a22620a4c --query "imageDetails[0].imageSizeInBytes" --output text`.
 
 ### Chạy cục bộ
 
