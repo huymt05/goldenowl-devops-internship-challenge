@@ -31,7 +31,27 @@ data "aws_ecr_repository" "app" {
 
 locals {
   name          = "goldenowl"
+  app_domain    = "app.huymt05-goldenowlchallenge.io.vn"
   initial_image = "${data.aws_ecr_repository.app.repository_url}:bootstrap"
+}
+
+# DNS is managed at VinaHost. Request the certificate first, then publish the
+# ACM validation CNAME from the acm_validation_record output in VinaHost.
+resource "aws_acm_certificate" "app" {
+  domain_name       = local.app_domain
+  validation_method = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+# VinaHost hosts the DNS validation CNAME; see acm_validation_record output.
+resource "aws_acm_certificate_validation" "app" {
+  certificate_arn = aws_acm_certificate.app.arn
+  validation_record_fqdns = [
+    for option in aws_acm_certificate.app.domain_validation_options : option.resource_record_name
+  ]
 }
 
 resource "aws_vpc" "main" {
@@ -81,6 +101,13 @@ resource "aws_security_group" "alb" {
   ingress {
     from_port   = 80
     to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 443
+    to_port     = 443
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
@@ -150,15 +177,39 @@ resource "aws_lb_target_group" "green" {
   }
 }
 
+# Keep this resource address so the ECS canary production listener rule keeps
+# pointing at the same listener ARN when HTTP is upgraded to HTTPS.
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.app.arn
-  port              = 80
-  protocol          = "HTTP"
+  port              = 443
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+  certificate_arn   = aws_acm_certificate_validation.app.certificate_arn
 
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.blue.arn
   }
+}
+
+resource "aws_lb_listener" "http_redirect" {
+  load_balancer_arn = aws_lb.app.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type = "redirect"
+
+    redirect {
+      host        = local.app_domain
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
+
+  # Port 80 is released by the existing production listener first.
+  depends_on = [aws_lb_listener.http]
 }
 
 resource "aws_lb_listener_rule" "production" {
@@ -196,6 +247,32 @@ resource "aws_lb_listener_rule" "production" {
 resource "aws_cloudwatch_log_group" "app" {
   name              = "/ecs/${local.name}-app"
   retention_in_days = 7
+}
+
+# ECS alternates the blue and green target groups between canary deployments.
+# Idle groups may emit no request metrics, so missing data must not trigger rollback.
+resource "aws_cloudwatch_metric_alarm" "target_5xx" {
+  for_each = {
+    blue  = aws_lb_target_group.blue.arn_suffix
+    green = aws_lb_target_group.green.arn_suffix
+  }
+
+  alarm_name          = "${local.name}-${each.key}-target-5xx"
+  alarm_description   = "Application 5xx responses during ECS canary deployment"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 2
+  datapoints_to_alarm = 2
+  threshold           = 3
+  period              = 60
+  statistic           = "Sum"
+  namespace           = "AWS/ApplicationELB"
+  metric_name         = "HTTPCode_Target_5XX_Count"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    LoadBalancer = aws_lb.app.arn_suffix
+    TargetGroup  = each.value
+  }
 }
 
 resource "aws_iam_role" "ecs_execution" {
@@ -289,6 +366,12 @@ resource "aws_ecs_service" "app" {
       canary_percent              = 10
       canary_bake_time_in_minutes = 5
     }
+  }
+
+  alarms {
+    alarm_names = [for alarm in aws_cloudwatch_metric_alarm.target_5xx : alarm.alarm_name]
+    enable      = true
+    rollback    = true
   }
 
   network_configuration {
