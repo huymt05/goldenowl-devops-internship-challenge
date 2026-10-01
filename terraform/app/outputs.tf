@@ -1,5 +1,24 @@
 output "deployment_url" {
-  value = "http://${aws_lb.app.dns_name}"
+  value = "https://${local.app_domain}"
+}
+
+output "alb_dns_name" {
+  value = aws_lb.app.dns_name
+}
+
+output "acm_certificate_arn" {
+  value = aws_acm_certificate.app.arn
+}
+
+output "acm_validation_record" {
+  description = "Add this CNAME in VinaHost DNS Manager to validate the HTTPS certificate."
+  value = one([
+    for option in aws_acm_certificate.app.domain_validation_options : {
+      name  = option.resource_record_name
+      type  = option.resource_record_type
+      value = option.resource_record_value
+    }
+  ])
 }
 
 output "github_role_arn" {
